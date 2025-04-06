@@ -1,4 +1,4 @@
-import axios, { AxiosError, AxiosRequestConfig, AxiosResponse } from 'axios'
+import axios, { AxiosError, InternalAxiosRequestConfig, AxiosResponse } from 'axios'
 
 const api = axios.create({
   baseURL: process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000/api',
@@ -9,13 +9,9 @@ const api = axios.create({
 
 // Add a request interceptor to include the token in requests
 api.interceptors.request.use(
-  (config: AxiosRequestConfig) => {
-    const token = localStorage.getItem('token')
+  (config: InternalAxiosRequestConfig) => {
+    const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null
     if (token) {
-      // Ensure headers object exists
-      if (!config.headers) {
-        config.headers = {};
-      }
       config.headers.Authorization = `Bearer ${token}`
     }
     return config
@@ -29,9 +25,8 @@ api.interceptors.response.use(
   (error: AxiosError) => {
     if (error.response?.status === 401) {
       // Token expired or invalid, clear storage and redirect to login
-      localStorage.removeItem('token')
-      // Check if window is defined (for SSR safety)
       if (typeof window !== 'undefined') {
+        localStorage.removeItem('token')
         window.location.href = '/login'
       }
     }
@@ -39,4 +34,4 @@ api.interceptors.response.use(
   }
 )
 
-export default api 
+export default api
