@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import ProtectedRoute from "@/components/protected-route"
 import MainLayout from "@/components/main-layout"
 import { Button } from "@/components/ui/button"
@@ -22,147 +22,123 @@ import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { useToast } from "@/hooks/use-toast"
 import { Eye, FileText } from "lucide-react"
+// Import the API utility instead of axios directly
+import api from "@/utils/api"
 
 interface Loan {
-  id: string
-  borrowerId: string
-  borrowerName: string
+  _id: string // Changed from id to _id to match MongoDB's ID
+  user: {
+    _id: string
+    name: string
+    email: string
+  }
   amount: number
   interestRate: number
-  term: number // in months
-  startDate: string
-  endDate: string
+  tenure: number // Changed from term to tenure to match backend model
+  applicationDate: string // Changed from startDate
+  disbursementDate?: string // Optional as it might not be set for all loan statuses
   status: "pending" | "verified" | "approved" | "disbursed" | "repaying" | "completed" | "defaulted" | "rejected"
-  purpose: string
+  reason: string // Changed from purpose
   amountPaid: number
+  totalAmountPayable: number
 }
 
-// Mock loans data
-const MOCK_LOANS: Loan[] = [
-  {
-    id: "1",
-    borrowerId: "1",
-    borrowerName: "John Smith",
-    amount: 50000,
-    interestRate: 15,
-    term: 12,
-    startDate: "2023-01-15",
-    endDate: "2024-01-15",
-    status: "disbursed",
-    purpose: "Business expansion",
-    amountPaid: 15000,
-  },
-  {
-    id: "2",
-    borrowerId: "2",
-    borrowerName: "Sarah Johnson",
-    amount: 75000,
-    interestRate: 12,
-    term: 24,
-    startDate: "2023-02-20",
-    endDate: "2025-02-20",
-    status: "repaying",
-    purpose: "Education",
-    amountPaid: 10000,
-  },
-  {
-    id: "3",
-    borrowerId: "5",
-    borrowerName: "David Wilson",
-    amount: 100000,
-    interestRate: 10,
-    term: 36,
-    startDate: "2023-03-10",
-    endDate: "2026-03-10",
-    status: "approved",
-    purpose: "Home renovation",
-    amountPaid: 0,
-  },
-  {
-    id: "4",
-    borrowerId: "1",
-    borrowerName: "John Smith",
-    amount: 25000,
-    interestRate: 18,
-    term: 6,
-    startDate: "2022-11-05",
-    endDate: "2023-05-05",
-    status: "completed",
-    purpose: "Medical expenses",
-    amountPaid: 25000,
-  },
-  {
-    id: "5",
-    borrowerId: "3",
-    borrowerName: "Michael Brown",
-    amount: 150000,
-    interestRate: 8,
-    term: 48,
-    startDate: "2023-04-15",
-    endDate: "2027-04-15",
-    status: "verified",
-    purpose: "Debt consolidation",
-    amountPaid: 0,
-  },
-  {
-    id: "6",
-    borrowerId: "4",
-    borrowerName: "Emily Davis",
-    amount: 200000,
-    interestRate: 9,
-    term: 60,
-    startDate: "2022-12-01",
-    endDate: "2027-12-01",
-    status: "defaulted",
-    purpose: "Business startup",
-    amountPaid: 20000,
-  },
-  {
-    id: "7",
-    borrowerId: "2",
-    borrowerName: "Sarah Johnson",
-    amount: 30000,
-    interestRate: 20,
-    term: 3,
-    startDate: "2023-05-10",
-    endDate: "2023-08-10",
-    status: "pending",
-    purpose: "Emergency funds",
-    amountPaid: 0,
-  },
-]
+// Interface for creating a new loan
+interface NewLoan {
+  userId: string
+  amount: string
+  interestRate: string
+  tenure: string
+  reason: string
+  employmentStatus: string
+  employerName: string
+  employerAddress: string
+}
 
-// Mock borrowers for the dropdown
-const MOCK_BORROWERS = [
-  { id: "1", name: "John Smith" },
-  { id: "2", name: "Sarah Johnson" },
-  { id: "3", name: "Michael Brown" },
-  { id: "4", name: "Emily Davis" },
-  { id: "5", name: "David Wilson" },
-]
+// User interface
+interface User {
+  _id: string
+  name: string
+  email: string
+  role: string
+}
 
 export default function AdminLoans() {
-  const [loans, setLoans] = useState<Loan[]>(MOCK_LOANS)
+  const [loans, setLoans] = useState<Loan[]>([])
+  const [users, setUsers] = useState<User[]>([])
   const [searchTerm, setSearchTerm] = useState("")
   const [isAddLoanOpen, setIsAddLoanOpen] = useState(false)
-  const [newLoan, setNewLoan] = useState({
-    borrowerId: "",
+  const [isLoading, setIsLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [newLoan, setNewLoan] = useState<NewLoan>({
+    userId: "",
     amount: "",
-    interestRate: "",
-    term: "",
-    purpose: "",
+    interestRate: "15", // Default interest rate
+    tenure: "",
+    reason: "",
+    employmentStatus: "Employed",
+    employerName: "",
+    employerAddress: "",
   })
   const { toast } = useToast()
 
+  // Fetch loans on component mount
+  useEffect(() => {
+    const fetchLoans = async () => {
+      setIsLoading(true)
+      setError(null)
+      try {
+        console.log("Fetching loans data...")
+        
+        // Use the API utility instead of axios directly
+        const response = await api.get("/api/admin/loans")
+        console.log("Loans data received:", response.data)
+        setLoans(response.data.loans || [])
+        
+        // Also fetch users for the dropdown in the add loan form
+        console.log("Fetching users data...")
+        const usersResponse = await api.get("/api/admin/users")
+        console.log("Users data received:", usersResponse.data)
+        
+        // Filter to only include users with role 'user'
+        const regularUsers = usersResponse.data.users.filter((user: User) => user.role === "user")
+        setUsers(regularUsers)
+      } catch (error: any) {
+        console.error("Error fetching loans or users:", error)
+        
+        let errorMessage = "Failed to load data"
+        if (error.response) {
+          errorMessage += `: ${error.response.status} - ${error.response.data?.message || "Unknown error"}`
+        } else if (error.request) {
+          errorMessage += ": No response received from server"
+        } else {
+          errorMessage += `: ${error.message}`
+        }
+        
+        setError(errorMessage)
+        
+        toast({
+          variant: "destructive",
+          title: "Failed to fetch data",
+          description: "There was an error loading the loans data."
+        })
+      } finally {
+        setIsLoading(false)
+      }
+    }
+
+    fetchLoans()
+  }, [toast])
+
   const filteredLoans = loans.filter(
     (loan) =>
-      loan.borrowerName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      loan.purpose.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      loan.status.toLowerCase().includes(searchTerm.toLowerCase()),
+      loan.user?.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      loan.reason?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      loan.status?.toLowerCase().includes(searchTerm.toLowerCase()),
   )
 
-  const handleAddLoan = () => {
-    if (!newLoan.borrowerId || !newLoan.amount || !newLoan.interestRate || !newLoan.term || !newLoan.purpose) {
+  const handleAddLoan = async () => {
+    if (!newLoan.userId || !newLoan.amount || !newLoan.interestRate || !newLoan.tenure || !newLoan.reason) {
       toast({
         variant: "destructive",
         title: "Error",
@@ -171,62 +147,76 @@ export default function AdminLoans() {
       return
     }
 
-    const newId = (Math.max(...loans.map((l) => Number.parseInt(l.id))) + 1).toString()
-    const selectedBorrower = MOCK_BORROWERS.find((b) => b.id === newLoan.borrowerId)
+    try {
+      // Use the API utility
+      const response = await api.post(
+        "/api/admin/loans",
+        {
+          user: newLoan.userId,
+          amount: Number(newLoan.amount),
+          interestRate: Number(newLoan.interestRate),
+          tenure: Number(newLoan.tenure),
+          reason: newLoan.reason,
+          employmentStatus: newLoan.employmentStatus,
+          employerName: newLoan.employerName,
+          employerAddress: newLoan.employerAddress,
+        }
+      )
 
-    if (!selectedBorrower) {
+      // Add the new loan to the state
+      setLoans([response.data.loan, ...loans])
+
+      // Reset the form
+      setNewLoan({
+        userId: "",
+        amount: "",
+        interestRate: "15",
+        tenure: "",
+        reason: "",
+        employmentStatus: "Employed",
+        employerName: "",
+        employerAddress: "",
+      })
+
+      setIsAddLoanOpen(false)
+
+      toast({
+        title: "Loan Added",
+        description: `A new loan has been created successfully`,
+      })
+    } catch (error: any) {
+      console.error("Error adding loan:", error)
       toast({
         variant: "destructive",
-        title: "Error",
-        description: "Invalid borrower selected",
+        title: "Failed to add loan",
+        description: error.response?.data?.message || "There was an error creating the loan.",
       })
-      return
     }
-
-    const today = new Date()
-    const startDate = today.toISOString().split("T")[0]
-    const endDate = new Date(today.setMonth(today.getMonth() + Number(newLoan.term))).toISOString().split("T")[0]
-
-    setLoans([
-      ...loans,
-      {
-        id: newId,
-        borrowerId: newLoan.borrowerId,
-        borrowerName: selectedBorrower.name,
-        amount: Number(newLoan.amount),
-        interestRate: Number(newLoan.interestRate),
-        term: Number(newLoan.term),
-        startDate,
-        endDate,
-        status: "pending",
-        purpose: newLoan.purpose,
-        amountPaid: 0,
-      },
-    ])
-
-    setNewLoan({
-      borrowerId: "",
-      amount: "",
-      interestRate: "",
-      term: "",
-      purpose: "",
-    })
-
-    setIsAddLoanOpen(false)
-
-    toast({
-      title: "Loan Added",
-      description: `A new loan for ${selectedBorrower.name} has been added`,
-    })
   }
 
-  const handleUpdateStatus = (loanId: string, newStatus: Loan["status"]) => {
-    setLoans(loans.map((loan) => (loan.id === loanId ? { ...loan, status: newStatus } : loan)))
+  const handleUpdateStatus = async (loanId: string, newStatus: Loan["status"]) => {
+    try {
+      // Use the API utility
+      await api.patch(
+        `/api/admin/loans/${loanId}/status`,
+        { status: newStatus }
+      )
 
-    toast({
-      title: "Status Updated",
-      description: `Loan status has been updated to ${newStatus.toUpperCase()}`,
-    })
+      // Update the state
+      setLoans(loans.map((loan) => (loan._id === loanId ? { ...loan, status: newStatus } : loan)))
+
+      toast({
+        title: "Status Updated",
+        description: `Loan status has been updated to ${newStatus.toUpperCase()}`,
+      })
+    } catch (error: any) {
+      console.error("Error updating loan status:", error)
+      toast({
+        variant: "destructive",
+        title: "Failed to update status",
+        description: error.response?.data?.message || "There was an error updating the loan status.",
+      })
+    }
   }
 
   const getStatusBadgeClass = (status: Loan["status"]) => {
@@ -290,7 +280,7 @@ export default function AdminLoans() {
               <CardContent>
                 <div className="text-2xl font-bold">{totalDisbursed.toLocaleString()}</div>
                 <p className="text-xs text-muted-foreground">
-                  {((totalDisbursed / totalAmount) * 100).toFixed(1)}% of total amount
+                  {totalAmount > 0 ? ((totalDisbursed / totalAmount) * 100).toFixed(1) : 0}% of total amount
                 </p>
               </CardContent>
             </Card>
@@ -301,7 +291,7 @@ export default function AdminLoans() {
               <CardContent>
                 <div className="text-2xl font-bold">{totalRepaid.toLocaleString()}</div>
                 <p className="text-xs text-muted-foreground">
-                  {((totalRepaid / totalDisbursed) * 100).toFixed(1)}% of disbursed amount
+                  {totalDisbursed > 0 ? ((totalRepaid / totalDisbursed) * 100).toFixed(1) : 0}% of disbursed amount
                 </p>
               </CardContent>
             </Card>
@@ -336,16 +326,16 @@ export default function AdminLoans() {
                       <div className="grid gap-2">
                         <Label htmlFor="borrower">Borrower</Label>
                         <Select
-                          value={newLoan.borrowerId}
-                          onValueChange={(value) => setNewLoan({ ...newLoan, borrowerId: value })}
+                          value={newLoan.userId}
+                          onValueChange={(value) => setNewLoan({ ...newLoan, userId: value })}
                         >
                           <SelectTrigger id="borrower">
                             <SelectValue placeholder="Select borrower" />
                           </SelectTrigger>
                           <SelectContent>
-                            {MOCK_BORROWERS.map((borrower) => (
-                              <SelectItem key={borrower.id} value={borrower.id}>
-                                {borrower.name}
+                            {users.map((user) => (
+                              <SelectItem key={user._id} value={user._id}>
+                                {user.name} ({user.email})
                               </SelectItem>
                             ))}
                           </SelectContent>
@@ -373,23 +363,64 @@ export default function AdminLoans() {
                       </div>
 
                       <div className="grid gap-2">
-                        <Label htmlFor="term">Loan Term (months)</Label>
+                        <Label htmlFor="tenure">Loan Term (months)</Label>
                         <Input
-                          id="term"
+                          id="tenure"
                           type="number"
-                          value={newLoan.term}
-                          onChange={(e) => setNewLoan({ ...newLoan, term: e.target.value })}
+                          value={newLoan.tenure}
+                          onChange={(e) => setNewLoan({ ...newLoan, tenure: e.target.value })}
                         />
                       </div>
 
                       <div className="grid gap-2">
-                        <Label htmlFor="purpose">Loan Purpose</Label>
+                        <Label htmlFor="reason">Loan Purpose</Label>
                         <Input
-                          id="purpose"
-                          value={newLoan.purpose}
-                          onChange={(e) => setNewLoan({ ...newLoan, purpose: e.target.value })}
+                          id="reason"
+                          value={newLoan.reason}
+                          onChange={(e) => setNewLoan({ ...newLoan, reason: e.target.value })}
                         />
                       </div>
+
+                      <div className="grid gap-2">
+                        <Label htmlFor="employmentStatus">Employment Status</Label>
+                        <Select
+                          value={newLoan.employmentStatus}
+                          onValueChange={(value) => setNewLoan({ ...newLoan, employmentStatus: value })}
+                        >
+                          <SelectTrigger id="employmentStatus">
+                            <SelectValue placeholder="Select status" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="Employed">Employed</SelectItem>
+                            <SelectItem value="Self-employed">Self-employed</SelectItem>
+                            <SelectItem value="Unemployed">Unemployed</SelectItem>
+                            <SelectItem value="Student">Student</SelectItem>
+                            <SelectItem value="Retired">Retired</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+
+                      {(newLoan.employmentStatus === "Employed" || newLoan.employmentStatus === "Self-employed") && (
+                        <>
+                          <div className="grid gap-2">
+                            <Label htmlFor="employerName">Employer Name</Label>
+                            <Input
+                              id="employerName"
+                              value={newLoan.employerName}
+                              onChange={(e) => setNewLoan({ ...newLoan, employerName: e.target.value })}
+                            />
+                          </div>
+
+                          <div className="grid gap-2">
+                            <Label htmlFor="employerAddress">Employer Address</Label>
+                            <Input
+                              id="employerAddress"
+                              value={newLoan.employerAddress}
+                              onChange={(e) => setNewLoan({ ...newLoan, employerAddress: e.target.value })}
+                            />
+                          </div>
+                        </>
+                      )}
                     </div>
 
                     <DialogFooter>
@@ -405,82 +436,97 @@ export default function AdminLoans() {
               </div>
             </div>
 
-            <Tabs defaultValue="all">
-              <TabsList className="mb-4">
-                <TabsTrigger value="all">All Loans</TabsTrigger>
-                <TabsTrigger value="pending">Pending</TabsTrigger>
-                <TabsTrigger value="verified">Verified</TabsTrigger>
-                <TabsTrigger value="approved">Approved</TabsTrigger>
-                <TabsTrigger value="disbursed">Disbursed</TabsTrigger>
-                <TabsTrigger value="repaying">Repaying</TabsTrigger>
-                <TabsTrigger value="completed">Completed</TabsTrigger>
-                <TabsTrigger value="defaulted">Defaulted</TabsTrigger>
-              </TabsList>
+            {error ? (
+              <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded relative" role="alert">
+                <strong className="font-bold">Error: </strong>
+                <span className="block sm:inline">{error}</span>
+              </div>
+            ) : (
+              <Tabs defaultValue="all">
+                <TabsList className="mb-4">
+                  <TabsTrigger value="all">All Loans</TabsTrigger>
+                  <TabsTrigger value="pending">Pending</TabsTrigger>
+                  <TabsTrigger value="verified">Verified</TabsTrigger>
+                  <TabsTrigger value="approved">Approved</TabsTrigger>
+                  <TabsTrigger value="disbursed">Disbursed</TabsTrigger>
+                  <TabsTrigger value="repaying">Repaying</TabsTrigger>
+                  <TabsTrigger value="completed">Completed</TabsTrigger>
+                  <TabsTrigger value="defaulted">Defaulted</TabsTrigger>
+                </TabsList>
 
-              <TabsContent value="all">
-                <LoanTable
-                  loans={filteredLoans}
-                  onUpdateStatus={handleUpdateStatus}
-                  getStatusBadgeClass={getStatusBadgeClass}
-                />
-              </TabsContent>
+                <TabsContent value="all">
+                  <LoanTable
+                    loans={filteredLoans}
+                    onUpdateStatus={handleUpdateStatus}
+                    getStatusBadgeClass={getStatusBadgeClass}
+                    isLoading={isLoading}
+                  />
+                </TabsContent>
 
-              <TabsContent value="pending">
-                <LoanTable
-                  loans={filteredLoans.filter((l) => l.status === "pending")}
-                  onUpdateStatus={handleUpdateStatus}
-                  getStatusBadgeClass={getStatusBadgeClass}
-                />
-              </TabsContent>
+                <TabsContent value="pending">
+                  <LoanTable
+                    loans={filteredLoans.filter((l) => l.status === "pending")}
+                    onUpdateStatus={handleUpdateStatus}
+                    getStatusBadgeClass={getStatusBadgeClass}
+                    isLoading={isLoading}
+                  />
+                </TabsContent>
 
-              <TabsContent value="verified">
-                <LoanTable
-                  loans={filteredLoans.filter((l) => l.status === "verified")}
-                  onUpdateStatus={handleUpdateStatus}
-                  getStatusBadgeClass={getStatusBadgeClass}
-                />
-              </TabsContent>
+                <TabsContent value="verified">
+                  <LoanTable
+                    loans={filteredLoans.filter((l) => l.status === "verified")}
+                    onUpdateStatus={handleUpdateStatus}
+                    getStatusBadgeClass={getStatusBadgeClass}
+                    isLoading={isLoading}
+                  />
+                </TabsContent>
 
-              <TabsContent value="approved">
-                <LoanTable
-                  loans={filteredLoans.filter((l) => l.status === "approved")}
-                  onUpdateStatus={handleUpdateStatus}
-                  getStatusBadgeClass={getStatusBadgeClass}
-                />
-              </TabsContent>
+                <TabsContent value="approved">
+                  <LoanTable
+                    loans={filteredLoans.filter((l) => l.status === "approved")}
+                    onUpdateStatus={handleUpdateStatus}
+                    getStatusBadgeClass={getStatusBadgeClass}
+                    isLoading={isLoading}
+                  />
+                </TabsContent>
 
-              <TabsContent value="disbursed">
-                <LoanTable
-                  loans={filteredLoans.filter((l) => l.status === "disbursed")}
-                  onUpdateStatus={handleUpdateStatus}
-                  getStatusBadgeClass={getStatusBadgeClass}
-                />
-              </TabsContent>
+                <TabsContent value="disbursed">
+                  <LoanTable
+                    loans={filteredLoans.filter((l) => l.status === "disbursed")}
+                    onUpdateStatus={handleUpdateStatus}
+                    getStatusBadgeClass={getStatusBadgeClass}
+                    isLoading={isLoading}
+                  />
+                </TabsContent>
 
-              <TabsContent value="repaying">
-                <LoanTable
-                  loans={filteredLoans.filter((l) => l.status === "repaying")}
-                  onUpdateStatus={handleUpdateStatus}
-                  getStatusBadgeClass={getStatusBadgeClass}
-                />
-              </TabsContent>
+                <TabsContent value="repaying">
+                  <LoanTable
+                    loans={filteredLoans.filter((l) => l.status === "repaying")}
+                    onUpdateStatus={handleUpdateStatus}
+                    getStatusBadgeClass={getStatusBadgeClass}
+                    isLoading={isLoading}
+                  />
+                </TabsContent>
 
-              <TabsContent value="completed">
-                <LoanTable
-                  loans={filteredLoans.filter((l) => l.status === "completed")}
-                  onUpdateStatus={handleUpdateStatus}
-                  getStatusBadgeClass={getStatusBadgeClass}
-                />
-              </TabsContent>
+                <TabsContent value="completed">
+                  <LoanTable
+                    loans={filteredLoans.filter((l) => l.status === "completed")}
+                    onUpdateStatus={handleUpdateStatus}
+                    getStatusBadgeClass={getStatusBadgeClass}
+                    isLoading={isLoading}
+                  />
+                </TabsContent>
 
-              <TabsContent value="defaulted">
-                <LoanTable
-                  loans={filteredLoans.filter((l) => l.status === "defaulted")}
-                  onUpdateStatus={handleUpdateStatus}
-                  getStatusBadgeClass={getStatusBadgeClass}
-                />
-              </TabsContent>
-            </Tabs>
+                <TabsContent value="defaulted">
+                  <LoanTable
+                    loans={filteredLoans.filter((l) => l.status === "defaulted")}
+                    onUpdateStatus={handleUpdateStatus}
+                    getStatusBadgeClass={getStatusBadgeClass}
+                    isLoading={isLoading}
+                  />
+                </TabsContent>
+              </Tabs>
+            )}
           </div>
         </div>
       </MainLayout>
@@ -492,9 +538,10 @@ interface LoanTableProps {
   loans: Loan[]
   onUpdateStatus: (loanId: string, newStatus: Loan["status"]) => void
   getStatusBadgeClass: (status: Loan["status"]) => string
+  isLoading: boolean
 }
 
-function LoanTable({ loans, onUpdateStatus, getStatusBadgeClass }: LoanTableProps) {
+function LoanTable({ loans, onUpdateStatus, getStatusBadgeClass, isLoading }: LoanTableProps) {
   const [currentPage, setCurrentPage] = useState(1)
   const [itemsPerPage] = useState(5)
 
@@ -502,6 +549,14 @@ function LoanTable({ loans, onUpdateStatus, getStatusBadgeClass }: LoanTableProp
   const indexOfFirstItem = indexOfLastItem - itemsPerPage
   const currentLoans = loans.slice(indexOfFirstItem, indexOfLastItem)
   const totalPages = Math.ceil(loans.length / itemsPerPage)
+
+  if (isLoading) {
+    return (
+      <div className="flex justify-center items-center py-8">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900"></div>
+      </div>
+    )
+  }
 
   return (
     <div>
@@ -528,33 +583,46 @@ function LoanTable({ loans, onUpdateStatus, getStatusBadgeClass }: LoanTableProp
             </TableRow>
           ) : (
             currentLoans.map((loan) => (
-              <TableRow key={loan.id}>
-                <TableCell>{loan.id}</TableCell>
-                <TableCell className="font-medium">{loan.borrowerName}</TableCell>
+              <TableRow key={loan._id}>
+                <TableCell>{loan._id.substring(0, 8)}...</TableCell>
+                <TableCell className="font-medium">{loan.user.name}</TableCell>
                 <TableCell>{loan.amount.toLocaleString()}</TableCell>
                 <TableCell>{loan.interestRate}%</TableCell>
-                <TableCell>{loan.term} months</TableCell>
-                <TableCell>{loan.startDate}</TableCell>
+                <TableCell>{loan.tenure} months</TableCell>
+                <TableCell>{new Date(loan.applicationDate).toLocaleDateString()}</TableCell>
                 <TableCell>
                   <Badge variant="outline" className={getStatusBadgeClass(loan.status)}>
                     {loan.status.toUpperCase()}
                   </Badge>
                 </TableCell>
                 <TableCell>
-                  {loan.amountPaid.toLocaleString()} ({((loan.amountPaid / loan.amount) * 100).toFixed(1)}%)
+                  {loan.amountPaid.toLocaleString()} ({loan.totalAmountPayable > 0 ? ((loan.amountPaid / loan.totalAmountPayable) * 100).toFixed(1) : 0}%)
                 </TableCell>
                 <TableCell>
                   <div className="flex space-x-2">
-                    <Button variant="outline" size="sm">
-                      <Eye className="h-4 w-4" />
+                    <Button variant="outline" size="sm" asChild>
+                      <a href={`/admin/loans/${loan._id}`}>
+                        <Eye className="h-4 w-4" />
+                      </a>
                     </Button>
+
+                    {loan.status === "pending" && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="bg-blue-100 text-blue-800 hover:bg-blue-200"
+                        onClick={() => onUpdateStatus(loan._id, "verified")}
+                      >
+                        Verify
+                      </Button>
+                    )}
 
                     {loan.status === "verified" && (
                       <Button
                         variant="outline"
                         size="sm"
                         className="bg-green-100 text-green-800 hover:bg-green-200"
-                        onClick={() => onUpdateStatus(loan.id, "approved")}
+                        onClick={() => onUpdateStatus(loan._id, "approved")}
                       >
                         Approve
                       </Button>
@@ -565,7 +633,7 @@ function LoanTable({ loans, onUpdateStatus, getStatusBadgeClass }: LoanTableProp
                         variant="outline"
                         size="sm"
                         className="bg-purple-100 text-purple-800 hover:bg-purple-200"
-                        onClick={() => onUpdateStatus(loan.id, "disbursed")}
+                        onClick={() => onUpdateStatus(loan._id, "disbursed")}
                       >
                         Disburse
                       </Button>
@@ -576,7 +644,7 @@ function LoanTable({ loans, onUpdateStatus, getStatusBadgeClass }: LoanTableProp
                         variant="outline"
                         size="sm"
                         className="bg-cyan-100 text-cyan-800 hover:bg-cyan-200"
-                        onClick={() => onUpdateStatus(loan.id, "repaying")}
+                        onClick={() => onUpdateStatus(loan._id, "repaying")}
                       >
                         Start Repayment
                       </Button>
@@ -587,7 +655,7 @@ function LoanTable({ loans, onUpdateStatus, getStatusBadgeClass }: LoanTableProp
                         variant="outline"
                         size="sm"
                         className="bg-green-100 text-green-800 hover:bg-green-200"
-                        onClick={() => onUpdateStatus(loan.id, "completed")}
+                        onClick={() => onUpdateStatus(loan._id, "completed")}
                       >
                         Mark Completed
                       </Button>
@@ -598,7 +666,7 @@ function LoanTable({ loans, onUpdateStatus, getStatusBadgeClass }: LoanTableProp
                         variant="outline"
                         size="sm"
                         className="bg-red-100 text-red-800 hover:bg-red-200"
-                        onClick={() => onUpdateStatus(loan.id, "rejected")}
+                        onClick={() => onUpdateStatus(loan._id, "rejected")}
                       >
                         Reject
                       </Button>
@@ -609,7 +677,7 @@ function LoanTable({ loans, onUpdateStatus, getStatusBadgeClass }: LoanTableProp
                         variant="outline"
                         size="sm"
                         className="bg-red-100 text-red-800 hover:bg-red-200"
-                        onClick={() => onUpdateStatus(loan.id, "defaulted")}
+                        onClick={() => onUpdateStatus(loan._id, "defaulted")}
                       >
                         Mark Default
                       </Button>
@@ -622,29 +690,30 @@ function LoanTable({ loans, onUpdateStatus, getStatusBadgeClass }: LoanTableProp
         </TableBody>
       </Table>
 
-      <div className="flex justify-between items-center mt-4">
-        <div>Items per page: {itemsPerPage}</div>
-        <div className="flex items-center">
-          <span>
-            {indexOfFirstItem + 1}-{Math.min(indexOfLastItem, loans.length)} of {loans.length}
-          </span>
-          <button
-            className="ml-2 p-1 rounded border disabled:opacity-50"
-            disabled={currentPage === 1}
-            onClick={() => setCurrentPage(currentPage - 1)}
-          >
-            <span className="material-icons">chevron_left</span>
-          </button>
-          <button
-            className="p-1 rounded border disabled:opacity-50"
-            disabled={currentPage === totalPages}
-            onClick={() => setCurrentPage(currentPage + 1)}
-          >
-            <span className="material-icons">chevron_right</span>
-          </button>
+      {loans.length > itemsPerPage && (
+        <div className="flex justify-between items-center mt-4">
+          <div>Items per page: {itemsPerPage}</div>
+          <div className="flex items-center">
+            <span>
+              {indexOfFirstItem + 1}-{Math.min(indexOfLastItem, loans.length)} of {loans.length}
+            </span>
+            <button
+              className="ml-2 p-1 rounded border disabled:opacity-50"
+              disabled={currentPage === 1}
+              onClick={() => setCurrentPage(currentPage - 1)}
+            >
+              <span className="material-icons">chevron_left</span>
+            </button>
+            <button
+              className="p-1 rounded border disabled:opacity-50"
+              disabled={currentPage === totalPages}
+              onClick={() => setCurrentPage(currentPage + 1)}
+            >
+              <span className="material-icons">chevron_right</span>
+            </button>
+          </div>
         </div>
-      </div>
+      )}
     </div>
   )
 }
-

@@ -13,6 +13,8 @@ export interface IUser extends Document {
   password: string;
   role: UserRole;
   createdAt: Date;
+  phone?: string; // Optional phone field
+  status?: string; // Optional status field
   comparePassword: (password: string) => Promise<boolean>;
 }
 
@@ -41,6 +43,15 @@ const userSchema = new Schema<IUser>({
   createdAt: {
     type: Date,
     default: Date.now,
+  },
+  phone: {
+    type: String,
+    trim: true,
+  },
+  status: {
+    type: String,
+    enum: ['active', 'inactive', 'blacklisted'],
+    default: 'active',
   },
 });
 

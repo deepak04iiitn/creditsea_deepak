@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import ProtectedRoute from "@/components/protected-route"
 import MainLayout from "@/components/main-layout"
 import { Button } from "@/components/ui/button"
@@ -21,9 +21,10 @@ import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Eye, UserPlus } from "lucide-react"
+import api from "@/utils/api"
 
 interface Borrower {
-  id: string
+  _id: string
   name: string
   email: string
   phone: string
@@ -33,70 +34,56 @@ interface Borrower {
   lastActivity: string
 }
 
-// Mock borrowers data
-const MOCK_BORROWERS: Borrower[] = [
-  {
-    id: "1",
-    name: "John Smith",
-    email: "john@example.com",
-    phone: "+1234567890",
-    status: "active",
-    loans: 2,
-    totalBorrowed: 150000,
-    lastActivity: "2023-05-15",
-  },
-  {
-    id: "2",
-    name: "Sarah Johnson",
-    email: "sarah@example.com",
-    phone: "+1987654321",
-    status: "active",
-    loans: 1,
-    totalBorrowed: 75000,
-    lastActivity: "2023-06-20",
-  },
-  {
-    id: "3",
-    name: "Michael Brown",
-    email: "michael@example.com",
-    phone: "+1122334455",
-    status: "inactive",
-    loans: 0,
-    totalBorrowed: 0,
-    lastActivity: "2023-04-10",
-  },
-  {
-    id: "4",
-    name: "Emily Davis",
-    email: "emily@example.com",
-    phone: "+1555666777",
-    status: "blacklisted",
-    loans: 3,
-    totalBorrowed: 250000,
-    lastActivity: "2023-03-05",
-  },
-  {
-    id: "5",
-    name: "David Wilson",
-    email: "david@example.com",
-    phone: "+1777888999",
-    status: "active",
-    loans: 1,
-    totalBorrowed: 100000,
-    lastActivity: "2023-07-01",
-  },
-]
-
 export default function AdminBorrowers() {
-  const [borrowers, setBorrowers] = useState<Borrower[]>(MOCK_BORROWERS)
+  const [borrowers, setBorrowers] = useState<Borrower[]>([])
   const [searchTerm, setSearchTerm] = useState("")
   const [isAddBorrowerOpen, setIsAddBorrowerOpen] = useState(false)
   const [newBorrower, setNewBorrower] = useState({
     name: "",
     email: "",
     phone: "",
+    password: "", // Added password field for creating new user
   })
+  const [isLoading, setIsLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
   const { toast } = useToast()
+
+  // Fetch borrowers on component mount
+  useEffect(() => {
+    const fetchBorrowers = async () => {
+      setIsLoading(true)
+      setError(null)
+      try {
+        console.log("Fetching borrowers data...")
+        const response = await api.get("/api/admin/borrowers")
+        console.log("Borrowers data received:", response.data)
+        setBorrowers(response.data.borrowers || [])
+      } catch (error: any) {
+        console.error("Error fetching borrowers:", error)
+        
+        let errorMessage = "Failed to load borrowers data"
+        if (error.response) {
+          errorMessage += `: ${error.response.status} - ${error.response.data?.message || "Unknown error"}`
+        } else if (error.request) {
+          errorMessage += ": No response received from server"
+        } else {
+          errorMessage += `: ${error.message}`
+        }
+        
+        setError(errorMessage)
+        
+        toast({
+          variant: "destructive",
+          title: "Failed to fetch data",
+          description: "There was an error loading the borrowers data."
+        })
+      } finally {
+        setIsLoading(false)
+      }
+    }
+
+    fetchBorrowers()
+  }, [toast])
 
   const filteredBorrowers = borrowers.filter(
     (borrower) =>
@@ -105,55 +92,89 @@ export default function AdminBorrowers() {
       borrower.phone.includes(searchTerm),
   )
 
-  const handleAddBorrower = () => {
-    if (!newBorrower.name || !newBorrower.email || !newBorrower.phone) {
+  const handleAddBorrower = async () => {
+    if (!newBorrower.name || !newBorrower.email || !newBorrower.password) {
       toast({
         variant: "destructive",
         title: "Error",
-        description: "Please fill in all required fields",
+        description: "Please fill in all required fields (name, email, and password)",
       })
       return
     }
 
-    const newId = (Math.max(...borrowers.map((b) => Number.parseInt(b.id))) + 1).toString()
-
-    setBorrowers([
-      ...borrowers,
-      {
-        id: newId,
+    try {
+      // Creating a new user with 'user' role via the API
+      const response = await api.post("/api/auth/register", {
         name: newBorrower.name,
         email: newBorrower.email,
+        password: newBorrower.password,
         phone: newBorrower.phone,
-        status: "active",
-        loans: 0,
-        totalBorrowed: 0,
-        lastActivity: new Date().toISOString().split("T")[0],
-      },
-    ])
+        role: 'user' // Ensure they're registered as a regular user
+      })
 
-    setNewBorrower({
-      name: "",
-      email: "",
-      phone: "",
-    })
+      // Add the new borrower to the state
+      const newUser = response.data.user
+      setBorrowers([
+        ...borrowers,
+        {
+          _id: newUser._id,
+          name: newUser.name,
+          email: newUser.email,
+          phone: newUser.phone || 'Not provided',
+          status: 'active',
+          loans: 0,
+          totalBorrowed: 0,
+          lastActivity: new Date().toISOString(),
+        },
+      ])
 
-    setIsAddBorrowerOpen(false)
+      setNewBorrower({
+        name: "",
+        email: "",
+        phone: "",
+        password: "",
+      })
 
-    toast({
-      title: "Borrower Added",
-      description: `${newBorrower.name} has been added as a borrower`,
-    })
+      setIsAddBorrowerOpen(false)
+
+      toast({
+        title: "Borrower Added",
+        description: `${newBorrower.name} has been added as a borrower`,
+      })
+    } catch (error: any) {
+      console.error("Error adding borrower:", error)
+      toast({
+        variant: "destructive",
+        title: "Failed to add borrower",
+        description: error.response?.data?.message || "There was an error creating the borrower.",
+      })
+    }
   }
 
-  const handleUpdateStatus = (borrowerId: string, newStatus: Borrower["status"]) => {
-    setBorrowers(
-      borrowers.map((borrower) => (borrower.id === borrowerId ? { ...borrower, status: newStatus } : borrower)),
-    )
+  const handleUpdateStatus = async (borrowerId: string, newStatus: Borrower["status"]) => {
+    try {
+      // Update borrower status via API
+      await api.patch(`/api/admin/borrowers/${borrowerId}/status`, { 
+        status: newStatus 
+      })
 
-    toast({
-      title: "Status Updated",
-      description: `Borrower status has been updated to ${newStatus}`,
-    })
+      // Update the state
+      setBorrowers(
+        borrowers.map((borrower) => (borrower._id === borrowerId ? { ...borrower, status: newStatus } : borrower)),
+      )
+
+      toast({
+        title: "Status Updated",
+        description: `Borrower status has been updated to ${newStatus}`,
+      })
+    } catch (error: any) {
+      console.error("Error updating borrower status:", error)
+      toast({
+        variant: "destructive",
+        title: "Failed to update status",
+        description: error.response?.data?.message || "There was an error updating the borrower status.",
+      })
+    }
   }
 
   const getStatusBadgeClass = (status: Borrower["status"]) => {
@@ -185,7 +206,7 @@ export default function AdminBorrowers() {
               <CardContent>
                 <div className="text-2xl font-bold">{activeCount}</div>
                 <p className="text-xs text-muted-foreground">
-                  {((activeCount / borrowers.length) * 100).toFixed(1)}% of total borrowers
+                  {borrowers.length > 0 ? ((activeCount / borrowers.length) * 100).toFixed(1) : 0}% of total borrowers
                 </p>
               </CardContent>
             </Card>
@@ -196,7 +217,7 @@ export default function AdminBorrowers() {
               <CardContent>
                 <div className="text-2xl font-bold">{inactiveCount}</div>
                 <p className="text-xs text-muted-foreground">
-                  {((inactiveCount / borrowers.length) * 100).toFixed(1)}% of total borrowers
+                  {borrowers.length > 0 ? ((inactiveCount / borrowers.length) * 100).toFixed(1) : 0}% of total borrowers
                 </p>
               </CardContent>
             </Card>
@@ -207,7 +228,7 @@ export default function AdminBorrowers() {
               <CardContent>
                 <div className="text-2xl font-bold">{blacklistedCount}</div>
                 <p className="text-xs text-muted-foreground">
-                  {((blacklistedCount / borrowers.length) * 100).toFixed(1)}% of total borrowers
+                  {borrowers.length > 0 ? ((blacklistedCount / borrowers.length) * 100).toFixed(1) : 0}% of total borrowers
                 </p>
               </CardContent>
             </Card>
@@ -259,6 +280,16 @@ export default function AdminBorrowers() {
                       </div>
 
                       <div className="grid gap-2">
+                        <Label htmlFor="password">Password</Label>
+                        <Input
+                          id="password"
+                          type="password"
+                          value={newBorrower.password}
+                          onChange={(e) => setNewBorrower({ ...newBorrower, password: e.target.value })}
+                        />
+                      </div>
+
+                      <div className="grid gap-2">
                         <Label htmlFor="phone">Phone Number</Label>
                         <Input
                           id="phone"
@@ -281,46 +312,57 @@ export default function AdminBorrowers() {
               </div>
             </div>
 
-            <Tabs defaultValue="all">
-              <TabsList className="mb-4">
-                <TabsTrigger value="all">All Borrowers</TabsTrigger>
-                <TabsTrigger value="active">Active</TabsTrigger>
-                <TabsTrigger value="inactive">Inactive</TabsTrigger>
-                <TabsTrigger value="blacklisted">Blacklisted</TabsTrigger>
-              </TabsList>
+            {isLoading ? (
+              <div className="flex justify-center items-center py-8">
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900"></div>
+              </div>
+            ) : error ? (
+              <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded relative" role="alert">
+                <strong className="font-bold">Error: </strong>
+                <span className="block sm:inline">{error}</span>
+              </div>
+            ) : (
+              <Tabs defaultValue="all">
+                <TabsList className="mb-4">
+                  <TabsTrigger value="all">All Borrowers</TabsTrigger>
+                  <TabsTrigger value="active">Active</TabsTrigger>
+                  <TabsTrigger value="inactive">Inactive</TabsTrigger>
+                  <TabsTrigger value="blacklisted">Blacklisted</TabsTrigger>
+                </TabsList>
 
-              <TabsContent value="all">
-                <BorrowerTable
-                  borrowers={filteredBorrowers}
-                  onUpdateStatus={handleUpdateStatus}
-                  getStatusBadgeClass={getStatusBadgeClass}
-                />
-              </TabsContent>
+                <TabsContent value="all">
+                  <BorrowerTable
+                    borrowers={filteredBorrowers}
+                    onUpdateStatus={handleUpdateStatus}
+                    getStatusBadgeClass={getStatusBadgeClass}
+                  />
+                </TabsContent>
 
-              <TabsContent value="active">
-                <BorrowerTable
-                  borrowers={filteredBorrowers.filter((b) => b.status === "active")}
-                  onUpdateStatus={handleUpdateStatus}
-                  getStatusBadgeClass={getStatusBadgeClass}
-                />
-              </TabsContent>
+                <TabsContent value="active">
+                  <BorrowerTable
+                    borrowers={filteredBorrowers.filter((b) => b.status === "active")}
+                    onUpdateStatus={handleUpdateStatus}
+                    getStatusBadgeClass={getStatusBadgeClass}
+                  />
+                </TabsContent>
 
-              <TabsContent value="inactive">
-                <BorrowerTable
-                  borrowers={filteredBorrowers.filter((b) => b.status === "inactive")}
-                  onUpdateStatus={handleUpdateStatus}
-                  getStatusBadgeClass={getStatusBadgeClass}
-                />
-              </TabsContent>
+                <TabsContent value="inactive">
+                  <BorrowerTable
+                    borrowers={filteredBorrowers.filter((b) => b.status === "inactive")}
+                    onUpdateStatus={handleUpdateStatus}
+                    getStatusBadgeClass={getStatusBadgeClass}
+                  />
+                </TabsContent>
 
-              <TabsContent value="blacklisted">
-                <BorrowerTable
-                  borrowers={filteredBorrowers.filter((b) => b.status === "blacklisted")}
-                  onUpdateStatus={handleUpdateStatus}
-                  getStatusBadgeClass={getStatusBadgeClass}
-                />
-              </TabsContent>
-            </Tabs>
+                <TabsContent value="blacklisted">
+                  <BorrowerTable
+                    borrowers={filteredBorrowers.filter((b) => b.status === "blacklisted")}
+                    onUpdateStatus={handleUpdateStatus}
+                    getStatusBadgeClass={getStatusBadgeClass}
+                  />
+                </TabsContent>
+              </Tabs>
+            )}
           </div>
         </div>
       </MainLayout>
@@ -367,7 +409,7 @@ function BorrowerTable({ borrowers, onUpdateStatus, getStatusBadgeClass }: Borro
             </TableRow>
           ) : (
             currentBorrowers.map((borrower) => (
-              <TableRow key={borrower.id}>
+              <TableRow key={borrower._id}>
                 <TableCell className="font-medium">{borrower.name}</TableCell>
                 <TableCell>{borrower.email}</TableCell>
                 <TableCell>{borrower.phone}</TableCell>
@@ -378,18 +420,20 @@ function BorrowerTable({ borrowers, onUpdateStatus, getStatusBadgeClass }: Borro
                 </TableCell>
                 <TableCell>{borrower.loans}</TableCell>
                 <TableCell>{borrower.totalBorrowed.toLocaleString()}</TableCell>
-                <TableCell>{borrower.lastActivity}</TableCell>
+                <TableCell>{new Date(borrower.lastActivity).toLocaleDateString()}</TableCell>
                 <TableCell>
                   <div className="flex space-x-2">
-                    <Button variant="outline" size="sm">
-                      <Eye className="h-4 w-4" />
+                    <Button variant="outline" size="sm" asChild>
+                      <a href={`/admin/borrowers/${borrower._id}`}>
+                        <Eye className="h-4 w-4" />
+                      </a>
                     </Button>
                     {borrower.status !== "active" && (
                       <Button
                         variant="outline"
                         size="sm"
                         className="bg-green-100 text-green-800 hover:bg-green-200"
-                        onClick={() => onUpdateStatus(borrower.id, "active")}
+                        onClick={() => onUpdateStatus(borrower._id, "active")}
                       >
                         Activate
                       </Button>
@@ -399,7 +443,7 @@ function BorrowerTable({ borrowers, onUpdateStatus, getStatusBadgeClass }: Borro
                         variant="outline"
                         size="sm"
                         className="bg-yellow-100 text-yellow-800 hover:bg-yellow-200"
-                        onClick={() => onUpdateStatus(borrower.id, "inactive")}
+                        onClick={() => onUpdateStatus(borrower._id, "inactive")}
                       >
                         Deactivate
                       </Button>
@@ -409,7 +453,7 @@ function BorrowerTable({ borrowers, onUpdateStatus, getStatusBadgeClass }: Borro
                         variant="outline"
                         size="sm"
                         className="bg-red-100 text-red-800 hover:bg-red-200"
-                        onClick={() => onUpdateStatus(borrower.id, "blacklisted")}
+                        onClick={() => onUpdateStatus(borrower._id, "blacklisted")}
                       >
                         Blacklist
                       </Button>
@@ -422,29 +466,30 @@ function BorrowerTable({ borrowers, onUpdateStatus, getStatusBadgeClass }: Borro
         </TableBody>
       </Table>
 
-      <div className="flex justify-between items-center mt-4">
-        <div>Items per page: {itemsPerPage}</div>
-        <div className="flex items-center">
-          <span>
-            {indexOfFirstItem + 1}-{Math.min(indexOfLastItem, borrowers.length)} of {borrowers.length}
-          </span>
-          <button
-            className="ml-2 p-1 rounded border disabled:opacity-50"
-            disabled={currentPage === 1}
-            onClick={() => setCurrentPage(currentPage - 1)}
-          >
-            <span className="material-icons">chevron_left</span>
-          </button>
-          <button
-            className="p-1 rounded border disabled:opacity-50"
-            disabled={currentPage === totalPages}
-            onClick={() => setCurrentPage(currentPage + 1)}
-          >
-            <span className="material-icons">chevron_right</span>
-          </button>
+      {borrowers.length > itemsPerPage && (
+        <div className="flex justify-between items-center mt-4">
+          <div>Items per page: {itemsPerPage}</div>
+          <div className="flex items-center">
+            <span>
+              {indexOfFirstItem + 1}-{Math.min(indexOfLastItem, borrowers.length)} of {borrowers.length}
+            </span>
+            <button
+              className="ml-2 p-1 rounded border disabled:opacity-50"
+              disabled={currentPage === 1}
+              onClick={() => setCurrentPage(currentPage - 1)}
+            >
+              <span className="material-icons">chevron_left</span>
+            </button>
+            <button
+              className="p-1 rounded border disabled:opacity-50"
+              disabled={currentPage === totalPages}
+              onClick={() => setCurrentPage(currentPage + 1)}
+            >
+              <span className="material-icons">chevron_right</span>
+            </button>
+          </div>
         </div>
-      </div>
+      )}
     </div>
   )
 }
-

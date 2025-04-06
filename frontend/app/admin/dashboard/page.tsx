@@ -63,7 +63,10 @@ export default function AdminDashboard() {
   useEffect(() => {
     const fetchDashboardData = async () => {
       try {
-        const response = await api.get('/api/admin/dashboard')
+        console.log('Fetching dashboard data...');
+        // The correct endpoint according to your backend routes
+        const response = await api.get('/api/admin/dashboard/stats');
+        console.log('Dashboard data received:', response.data);
         
         setStats(response.data.stats)
         setRecoveryRates(response.data.recoveryRates)
@@ -71,6 +74,10 @@ export default function AdminDashboard() {
         
         // Format chart data for the UI
         const formatChartData = (chartArray: any[]): ChartPoint[] => {
+          if (!chartArray || !Array.isArray(chartArray)) {
+            console.warn('Invalid chart data:', chartArray);
+            return [];
+          }
           return chartArray.map(item => ({
             name: item._id.toString(),
             value: item.count
@@ -85,8 +92,21 @@ export default function AdminDashboard() {
         
         setLoading(false)
       } catch (err: any) {
-        setError(err.response?.data?.message || "Failed to load dashboard data")
-        setLoading(false)
+        console.error('Dashboard fetch error:', err);
+        let errorMessage = "Failed to load dashboard data";
+        
+        // Add specific error information
+        if (err.response) {
+          errorMessage += `: Server responded with ${err.response.status} - ${err.response.data?.message || 'Unknown error'}`;
+          console.error('Error response:', err.response.data);
+        } else if (err.request) {
+          errorMessage += ": No response received from server";
+        } else {
+          errorMessage += `: ${err.message}`;
+        }
+        
+        setError(errorMessage);
+        setLoading(false);
       }
     }
     
@@ -214,26 +234,38 @@ export default function AdminDashboard() {
                   </tr>
                 </thead>
                 <tbody>
-                  {loans.slice(0, 5).map((loan) => (
-                    <tr key={loan._id} className="border-b">
-                      <td className="py-3 flex items-center">
-                        <div className="w-8 h-8 rounded-full bg-gray-300 flex items-center justify-center mr-2">
-                          <span className="text-sm">{loan.user.name.charAt(0)}</span>
-                        </div>
-                        <div>
-                          <p>{loan.reason || "Loan Application"}</p>
-                          <p className="text-xs text-gray-500">{new Date(loan.applicationDate).toLocaleTimeString()}</p>
-                        </div>
-                      </td>
-                      <td className="py-3">{loan.user.name}</td>
-                      <td className="py-3">{new Date(loan.applicationDate).toLocaleDateString()}</td>
-                      <td className="py-3">
-                        <span className={`px-2 py-1 rounded text-xs ${loan.status === 'verified' ? 'bg-green-100 text-green-800' : loan.status === 'approved' ? 'bg-blue-100 text-blue-800' : loan.status === 'rejected' ? 'bg-red-100 text-red-800' : loan.status === 'disbursed' ? 'bg-purple-100 text-purple-800' : 'bg-yellow-100 text-yellow-800'}`}>
-                          {loan.status.toUpperCase()}
-                        </span>
-                      </td>
+                  {loans && loans.length > 0 ? (
+                    loans.slice(0, 5).map((loan) => (
+                      <tr key={loan._id} className="border-b">
+                        <td className="py-3 flex items-center">
+                          <div className="w-8 h-8 rounded-full bg-gray-300 flex items-center justify-center mr-2">
+                            <span className="text-sm">{loan.user?.name?.charAt(0) || "U"}</span>
+                          </div>
+                          <div>
+                            <p>{loan.reason || "Loan Application"}</p>
+                            <p className="text-xs text-gray-500">{new Date(loan.applicationDate).toLocaleTimeString()}</p>
+                          </div>
+                        </td>
+                        <td className="py-3">{loan.user?.name || "Unknown User"}</td>
+                        <td className="py-3">{new Date(loan.applicationDate).toLocaleDateString()}</td>
+                        <td className="py-3">
+                          <span className={`px-2 py-1 rounded text-xs ${
+                            loan.status === 'verified' ? 'bg-green-100 text-green-800' : 
+                            loan.status === 'approved' ? 'bg-blue-100 text-blue-800' : 
+                            loan.status === 'rejected' ? 'bg-red-100 text-red-800' : 
+                            loan.status === 'disbursed' ? 'bg-purple-100 text-purple-800' : 
+                            'bg-yellow-100 text-yellow-800'
+                          }`}>
+                            {loan.status?.toUpperCase() || "UNKNOWN"}
+                          </span>
+                        </td>
+                      </tr>
+                    ))
+                  ) : (
+                    <tr>
+                      <td colSpan={4} className="py-4 text-center">No loans found</td>
                     </tr>
-                  ))}
+                  )}
                 </tbody>
               </table>
             </div>
@@ -296,4 +328,3 @@ export default function AdminDashboard() {
     </ProtectedRoute>
   )
 }
-
