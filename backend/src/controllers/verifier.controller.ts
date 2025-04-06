@@ -165,15 +165,11 @@ export const getBorrowers = async (req: Request, res: Response) => {
       .sort({ createdAt: -1 });
     
     // For each user, get document verification status
-    // Note: In a real system, you'd have a separate collection for documents
-    // This is a simplified example
     const borrowers = users.map(user => {
       // Mock document list and verification status
-      // In a real system, this would come from database
       const documentTypes = ['ID Card', 'Proof of Address', 'Bank Statement'];
       
       // Randomly determine if user has verification status
-      // In a real system, would be pulled from database
       const randomStatus = Math.random();
       let status = 'pending';
       if (user.get('verificationStatus')) {
@@ -185,7 +181,6 @@ export const getBorrowers = async (req: Request, res: Response) => {
       }
       
       // Random selection of submitted documents
-      // In a real system, would be pulled from database
       const documents = [];
       for (const doc of documentTypes) {
         if (Math.random() > 0.3) {
@@ -232,8 +227,6 @@ export const updateBorrowerVerificationStatus = async (req: Request, res: Respon
       });
     }
     
-    // In a real system, you'd update document verification status in a proper table
-    // This is a simplified example
     user.set('verificationStatus', status);
     await user.save();
     

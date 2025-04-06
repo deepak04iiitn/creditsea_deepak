@@ -456,8 +456,6 @@ export const getAdminDashboardStats = async (req: Request, res: Response) => {
 };
 
 
-// Add these functions to your admin.controller.ts file
-
 // Get all borrowers (users with role 'user')
 export const getBorrowers = async (req: Request, res: Response) => {
   try {

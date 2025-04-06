@@ -41,8 +41,6 @@ router.post('/users', createAdminUser); // Create a privileged user (admin/verif
 router.put('/users/:userId', updateUserRole); // Update a user's role
 router.delete('/users/:userId', deleteAdminUser); // Delete a user
 
-// Add these routes to your admin.routes.ts file
-
 // Borrower management
 router.get('/borrowers', getBorrowers); // Get all borrowers (regular users)
 router.patch('/borrowers/:userId/status', updateBorrowerStatus); // Update borrower status
