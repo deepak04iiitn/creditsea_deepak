@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import ProtectedRoute from "@/components/protected-route"
 import MainLayout from "@/components/main-layout"
 import { Button } from "@/components/ui/button"
@@ -19,6 +19,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Label } from "@/components/ui/label"
 import { useToast } from "@/hooks/use-toast"
 import type { UserRole } from "@/context/auth-context"
+import api from "@/utils/api"
 
 interface User {
   id: string
@@ -28,65 +29,65 @@ interface User {
   createdAt: string
 }
 
-// Mock users data
-const MOCK_USERS: User[] = [
-  {
-    id: "1",
-    name: "Admin User",
-    email: "admin@example.com",
-    role: "admin",
-    createdAt: "2023-01-15",
-  },
-  {
-    id: "2",
-    name: "Verifier User",
-    email: "verifier@example.com",
-    role: "verifier",
-    createdAt: "2023-02-20",
-  },
-  {
-    id: "3",
-    name: "Regular User",
-    email: "user@example.com",
-    role: "user",
-    createdAt: "2023-03-10",
-  },
-  {
-    id: "4",
-    name: "John Smith",
-    email: "john@example.com",
-    role: "user",
-    createdAt: "2023-04-05",
-  },
-  {
-    id: "5",
-    name: "Sarah Johnson",
-    email: "sarah@example.com",
-    role: "verifier",
-    createdAt: "2023-05-12",
-  },
-]
-
 export default function ManageUsers() {
-  const [users, setUsers] = useState<User[]>(MOCK_USERS)
+  const [users, setUsers] = useState<User[]>([])
+  const [filteredUsers, setFilteredUsers] = useState<User[]>([])
   const [searchTerm, setSearchTerm] = useState("")
   const [isAddUserOpen, setIsAddUserOpen] = useState(false)
   const [newUser, setNewUser] = useState({
     name: "",
     email: "",
     password: "",
-    role: "user" as UserRole,
+    role: "admin" as UserRole,
   })
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState("")
   const { toast } = useToast()
 
-  const filteredUsers = users.filter(
-    (user) =>
+  // Fetch admin users on component mount
+  useEffect(() => {
+    fetchUsers()
+  }, [])
+
+  const fetchUsers = async () => {
+    try {
+      setLoading(true)
+      const response = await api.get('/api/admin/users')
+      
+      // Transform data to match the expected User interface
+      const formattedUsers = response.data.users.map((user: any) => ({
+        id: user._id || user.id,
+        name: user.name,
+        email: user.email,
+        role: user.role,
+        createdAt: new Date(user.createdAt).toISOString().split('T')[0]
+      }))
+      
+      setUsers(formattedUsers)
+      setFilteredUsers(formattedUsers)
+      setLoading(false)
+    } catch (err: any) {
+      setError(err.response?.data?.message || "Failed to fetch users")
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: "Failed to load users from the server"
+      })
+      setLoading(false)
+    }
+  }
+
+  // Filter users when search term changes
+  useEffect(() => {
+    const filtered = users.filter(user => 
       user.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
       user.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      user.role.toLowerCase().includes(searchTerm.toLowerCase()),
-  )
+      user.role.toLowerCase().includes(searchTerm.toLowerCase())
+    )
+    setFilteredUsers(filtered)
+  }, [searchTerm, users])
 
-  const handleAddUser = () => {
+  const handleAddUser = async () => {
     if (!newUser.name || !newUser.email || !newUser.password) {
       toast({
         variant: "destructive",
@@ -96,50 +97,87 @@ export default function ManageUsers() {
       return
     }
 
-    const newId = (Math.max(...users.map((u) => Number.parseInt(u.id))) + 1).toString()
-
-    setUsers([
-      ...users,
-      {
-        id: newId,
+    try {
+      const response = await api.post('/api/auth/register/privileged', {
         name: newUser.name,
         email: newUser.email,
-        role: newUser.role,
-        createdAt: new Date().toISOString().split("T")[0],
-      },
-    ])
+        password: newUser.password,
+        role: newUser.role
+      })
+      
+      // Add the new user to the list
+      const createdUser = response.data.user
+      setUsers([...users, {
+        id: createdUser.id,
+        name: createdUser.name,
+        email: createdUser.email,
+        role: createdUser.role,
+        createdAt: new Date().toISOString().split("T")[0]
+      }])
+      
+      setNewUser({
+        name: "",
+        email: "",
+        password: "",
+        role: "admin",
+      })
 
-    setNewUser({
-      name: "",
-      email: "",
-      password: "",
-      role: "user",
-    })
+      setIsAddUserOpen(false)
 
-    setIsAddUserOpen(false)
-
-    toast({
-      title: "User Added",
-      description: `${newUser.name} has been added as a ${newUser.role}`,
-    })
+      toast({
+        title: "User Added",
+        description: `${newUser.name} has been added as a ${newUser.role}`,
+      })
+    } catch (err: any) {
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: err.response?.data?.message || "Failed to create user",
+      })
+    }
   }
 
-  const handleDeleteUser = (userId: string) => {
-    setUsers(users.filter((user) => user.id !== userId))
+  const handleDeleteUser = async (userId: string) => {
+    try {
+      await api.delete(`/api/admin/users/${userId}`)
+      
+      // Remove the deleted user from the list
+      setUsers(users.filter(user => user.id !== userId))
 
-    toast({
-      title: "User Deleted",
-      description: "The user has been deleted successfully",
-    })
+      toast({
+        title: "User Deleted",
+        description: "The user has been deleted successfully",
+      })
+    } catch (err: any) {
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: err.response?.data?.message || "Failed to delete user",
+      })
+    }
   }
 
-  const handleUpdateRole = (userId: string, newRole: UserRole) => {
-    setUsers(users.map((user) => (user.id === userId ? { ...user, role: newRole } : user)))
+  const handleUpdateRole = async (userId: string, newRole: UserRole) => {
+    try {
+      // We need to make an API call to update the user's role
+      await api.put(`/api/admin/users/${userId}`, { role: newRole })
+      
+      // Update the local state to reflect the change
+      setUsers(users.map(user => 
+        user.id === userId ? { ...user, role: newRole } : user
+      ))
 
-    toast({
-      title: "Role Updated",
-      description: `User role has been updated to ${newRole}`,
-    })
+      toast({
+        title: "Role Updated",
+        description: `User role has been updated to ${newRole}`,
+      })
+    } catch (err: any) {
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: err.response?.data?.message || "Failed to update user role",
+      })
+    }
   }
 
   return (
@@ -209,7 +247,6 @@ export default function ManageUsers() {
                         <SelectContent>
                           <SelectItem value="admin">Admin</SelectItem>
                           <SelectItem value="verifier">Verifier</SelectItem>
-                          <SelectItem value="user">User</SelectItem>
                         </SelectContent>
                       </Select>
                     </div>
@@ -228,55 +265,66 @@ export default function ManageUsers() {
             </div>
           </div>
 
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Name</TableHead>
-                <TableHead>Email</TableHead>
-                <TableHead>Role</TableHead>
-                <TableHead>Created At</TableHead>
-                <TableHead>Actions</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {filteredUsers.map((user) => (
-                <TableRow key={user.id}>
-                  <TableCell className="font-medium">{user.name}</TableCell>
-                  <TableCell>{user.email}</TableCell>
-                  <TableCell>
-                    <Select
-                      value={user.role}
-                      onValueChange={(value: UserRole) => handleUpdateRole(user.id, value)}
-                      disabled={user.id === "1"} // Prevent changing the main admin
-                    >
-                      <SelectTrigger className="w-32">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="admin">Admin</SelectItem>
-                        <SelectItem value="verifier">Verifier</SelectItem>
-                        <SelectItem value="user">User</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </TableCell>
-                  <TableCell>{user.createdAt}</TableCell>
-                  <TableCell>
-                    <Button
-                      variant="destructive"
-                      size="sm"
-                      onClick={() => handleDeleteUser(user.id)}
-                      disabled={user.id === "1"} // Prevent deleting the main admin
-                    >
-                      Delete
-                    </Button>
-                  </TableCell>
+          {loading ? (
+            <div className="text-center py-4">Loading users...</div>
+          ) : error ? (
+            <div className="text-center text-red-500 py-4">{error}</div>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Name</TableHead>
+                  <TableHead>Email</TableHead>
+                  <TableHead>Role</TableHead>
+                  <TableHead>Created At</TableHead>
+                  <TableHead>Actions</TableHead>
                 </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+              </TableHeader>
+              <TableBody>
+                {filteredUsers.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={5} className="text-center">No users found</TableCell>
+                  </TableRow>
+                ) : (
+                  filteredUsers.map((user) => (
+                    <TableRow key={user.id}>
+                      <TableCell className="font-medium">{user.name}</TableCell>
+                      <TableCell>{user.email}</TableCell>
+                      <TableCell>
+                        <Select
+                          value={user.role}
+                          onValueChange={(value: UserRole) => handleUpdateRole(user.id, value)}
+                          disabled={user.email === "admin@example.com"} // Prevent changing the main admin
+                        >
+                          <SelectTrigger className="w-32">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="admin">Admin</SelectItem>
+                            <SelectItem value="verifier">Verifier</SelectItem>
+                            <SelectItem value="user">User</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </TableCell>
+                      <TableCell>{user.createdAt}</TableCell>
+                      <TableCell>
+                        <Button
+                          variant="destructive"
+                          size="sm"
+                          onClick={() => handleDeleteUser(user.id)}
+                          disabled={user.email === "admin@example.com"} // Prevent deleting the main admin
+                        >
+                          Delete
+                        </Button>
+                      </TableCell>
+                    </TableRow>
+                  ))
+                )}
+              </TableBody>
+            </Table>
+          )}
         </div>
       </MainLayout>
     </ProtectedRoute>
   )
 }
-
