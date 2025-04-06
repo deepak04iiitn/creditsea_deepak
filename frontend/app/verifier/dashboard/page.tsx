@@ -1,154 +1,179 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { CreditCard, DollarSign, Users } from "lucide-react"
 import ProtectedRoute from "@/components/protected-route"
 import MainLayout from "@/components/main-layout"
 import StatsCard from "@/components/dashboard/stats-card"
 import LoanTable, { type Loan } from "@/components/dashboard/loan-table"
 import ChartCard from "@/components/dashboard/chart-card"
+import api from "@/utils/api"
+import { useToast } from "@/hooks/use-toast"
 
-// Mock data for verifier dashboard
-const MOCK_STATS = {
-  loans: 50,
-  borrowers: 100,
-  cashDisbursed: 300000,
-  savings: 450000,
-  repaidLoans: 30,
+interface DashboardStats {
+  totalLoans: number
+  totalBorrowers: number
+  verifiedLoans: number
+  rejectedLoans: number
+  cashDisbursed: number
+  cashReceived: number
+  totalSavings: number
 }
 
-const MOCK_LOANS: Loan[] = [
-  {
-    id: "1",
-    user: {
-      id: "101",
-      name: "Tom Cruise",
-    },
-    amount: 50000,
-    date: "June 05, 2021",
-    status: "pending",
-    reason: "Contact Email not Linked",
-  },
-  {
-    id: "2",
-    user: {
-      id: "102",
-      name: "Matt Damon",
-    },
-    amount: 75000,
-    date: "June 03, 2021",
-    status: "pending",
-    reason: "Adding Images to Featured Posts",
-  },
-  {
-    id: "3",
-    user: {
-      id: "103",
-      name: "Robert Downey",
-    },
-    amount: 100000,
-    date: "June 06, 2021",
-    status: "pending",
-    reason: "When will I be charged this month?",
-  },
-  {
-    id: "4",
-    user: {
-      id: "104",
-      name: "Christian Bale",
-    },
-    amount: 125000,
-    date: "June 08, 2021",
-    status: "verified",
-    reason: "Payment not going through",
-  },
-  {
-    id: "5",
-    user: {
-      id: "105",
-      name: "Henry Cavil",
-    },
-    amount: 150000,
-    date: "June 10, 2021",
-    status: "verified",
-    reason: "Unable to add replies",
-  },
-  {
-    id: "6",
-    user: {
-      id: "106",
-      name: "Chris Evans",
-    },
-    amount: 175000,
-    date: "June 12, 2021",
-    status: "verified",
-    reason: "Downtime since last week",
-  },
-  {
-    id: "7",
-    user: {
-      id: "107",
-      name: "Sam Smith",
-    },
-    amount: 200000,
-    date: "June 15, 2021",
-    status: "rejected",
-    reason: "Referral Bonus",
-  },
-]
+interface ChartPoint {
+  name: string
+  value: number
+}
 
-// Chart data
-const LOANS_RELEASED_DATA = [
-  { name: "1", value: 500 },
-  { name: "2", value: 350 },
-  { name: "3", value: 200 },
-  { name: "4", value: 650 },
-  { name: "5", value: 100 },
-  { name: "6", value: 250 },
-  { name: "7", value: 300 },
-  { name: "8", value: 150 },
-  { name: "9", value: 400 },
-  { name: "10", value: 500 },
-  { name: "11", value: 300 },
-  { name: "12", value: 700 },
-]
-
-const OUTSTANDING_LOANS_DATA = [
-  { name: "1", value: 50 },
-  { name: "2", value: 500 },
-  { name: "3", value: 600 },
-  { name: "4", value: 800 },
-  { name: "5", value: 100 },
-  { name: "6", value: 450 },
-  { name: "7", value: 200 },
-  { name: "8", value: 800 },
-  { name: "9", value: 550 },
-  { name: "10", value: 100 },
-  { name: "11", value: 400 },
-  { name: "12", value: 350 },
-]
-
-const REPAYMENTS_DATA = [
-  { name: "1", value: 1 },
-  { name: "2", value: 5 },
-  { name: "3", value: 6 },
-  { name: "4", value: 9 },
-  { name: "5", value: 1 },
-  { name: "6", value: 4 },
-  { name: "7", value: 2 },
-  { name: "8", value: 9 },
-  { name: "9", value: 5 },
-  { name: "10", value: 1 },
-  { name: "11", value: 4 },
-  { name: "12", value: 3 },
-]
+interface ApiLoan {
+  _id: string
+  user: {
+    _id: string
+    name: string
+    email: string
+  }
+  amount: number
+  applicationDate: string
+  status: string
+  reason: string
+}
 
 export default function VerifierDashboard() {
-  const [loans, setLoans] = useState<Loan[]>(MOCK_LOANS)
-  const [stats, setStats] = useState(MOCK_STATS)
+  const [loans, setLoans] = useState<Loan[]>([])
+  const [stats, setStats] = useState<DashboardStats | null>(null)
+  const [chartData, setChartData] = useState<{
+    loansReleasedMonthly: ChartPoint[];
+    outstandingLoansMonthly: ChartPoint[];
+    repaymentsCollectedMonthly: ChartPoint[];
+  }>({
+    loansReleasedMonthly: [],
+    outstandingLoansMonthly: [],
+    repaymentsCollectedMonthly: []
+  })
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState("")
+  const { toast } = useToast()
 
-  const handleStatusChange = (loanId: string, newStatus: Loan["status"]) => {
-    setLoans(loans.map((loan) => (loan.id === loanId ? { ...loan, status: newStatus } : loan)))
+  useEffect(() => {
+    const fetchDashboardData = async () => {
+      try {
+        console.log('Fetching verifier dashboard data...')
+        const response = await api.get('/api/verifier/dashboard/stats')
+        console.log('Verifier dashboard data received:', response.data)
+        
+        // Set stats
+        setStats(response.data.stats)
+        
+        // Format chart data
+        const formatChartData = (chartArray: any[]): ChartPoint[] => {
+          if (!chartArray || !Array.isArray(chartArray)) {
+            console.warn('Invalid chart data:', chartArray)
+            return []
+          }
+          return chartArray.map(item => ({
+            name: item._id.toString(),
+            value: item.count
+          }))
+        }
+        
+        setChartData({
+          loansReleasedMonthly: formatChartData(response.data.charts.loansReleasedMonthly),
+          outstandingLoansMonthly: formatChartData(response.data.charts.outstandingLoansMonthly),
+          repaymentsCollectedMonthly: formatChartData(response.data.charts.repaymentsCollectedMonthly)
+        })
+        
+        // Format loans for the table
+        if (response.data.recentActivity && Array.isArray(response.data.recentActivity)) {
+          const formattedLoans: Loan[] = response.data.recentActivity.map((loan: ApiLoan) => ({
+            id: loan._id,
+            user: {
+              id: loan.user._id,
+              name: loan.user.name
+            },
+            amount: loan.amount,
+            date: new Date(loan.applicationDate).toLocaleDateString('en-US', { 
+              year: 'numeric', 
+              month: 'long', 
+              day: '2-digit' 
+            }),
+            status: loan.status,
+            reason: loan.reason || "Loan Application"
+          }))
+          
+          setLoans(formattedLoans)
+        }
+        
+        setLoading(false)
+      } catch (err: any) {
+        console.error('Dashboard fetch error:', err)
+        let errorMessage = "Failed to load dashboard data"
+        
+        if (err.response) {
+          errorMessage += `: ${err.response.status} - ${err.response.data?.message || 'Unknown error'}`
+        } else if (err.request) {
+          errorMessage += ": No response received from server"
+        } else {
+          errorMessage += `: ${err.message}`
+        }
+        
+        setError(errorMessage)
+        setLoading(false)
+        
+        toast({
+          variant: "destructive",
+          title: "Failed to fetch data",
+          description: "There was an error loading the dashboard data."
+        })
+      }
+    }
+    
+    fetchDashboardData()
+  }, [toast])
+
+  const handleStatusChange = async (loanId: string, newStatus: Loan["status"]) => {
+    try {
+      await api.patch(`/api/verifier/loans/${loanId}/verify`, { status: newStatus })
+      
+      // Update the state
+      setLoans(loans.map((loan) => (loan.id === loanId ? { ...loan, status: newStatus } : loan)))
+      
+      toast({
+        title: "Status Updated",
+        description: `Loan status has been updated to ${newStatus}`
+      })
+    } catch (error: any) {
+      console.error("Error updating loan status:", error)
+      
+      toast({
+        variant: "destructive",
+        title: "Failed to update status",
+        description: error.response?.data?.message || "There was an error updating the loan status."
+      })
+    }
+  }
+
+  if (loading) {
+    return (
+      <ProtectedRoute allowedRoles={["verifier"]}>
+        <MainLayout title="Dashboard">
+          <div className="flex justify-center items-center h-64">
+            <div className="text-xl">Loading dashboard data...</div>
+          </div>
+        </MainLayout>
+      </ProtectedRoute>
+    )
+  }
+
+  if (error) {
+    return (
+      <ProtectedRoute allowedRoles={["verifier"]}>
+        <MainLayout title="Dashboard">
+          <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-4">
+            {error}
+          </div>
+        </MainLayout>
+      </ProtectedRoute>
+    )
   }
 
   return (
@@ -160,55 +185,60 @@ export default function VerifierDashboard() {
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
             <StatsCard
               icon={<CreditCard className="h-6 w-6 text-white" />}
-              value={stats.loans}
+              value={stats?.totalLoans || 0}
               label="Loans"
               className="bg-white"
             />
 
             <StatsCard
               icon={<Users className="h-6 w-6 text-white" />}
-              value={stats.borrowers}
+              value={stats?.totalBorrowers || 0}
               label="Borrowers"
               className="bg-white"
             />
 
             <StatsCard
               icon={<DollarSign className="h-6 w-6 text-white" />}
-              value={stats.cashDisbursed.toLocaleString()}
+              value={(stats?.cashDisbursed || 0).toLocaleString()}
               label="Cash Disbursed"
               className="bg-white"
             />
 
             <StatsCard
               icon={<DollarSign className="h-6 w-6 text-white" />}
-              value={stats.savings.toLocaleString()}
+              value={(stats?.totalSavings || 0).toLocaleString()}
               label="Savings"
               className="bg-white"
             />
 
             <StatsCard
               icon={<CreditCard className="h-6 w-6 text-white" />}
-              value={stats.repaidLoans}
-              label="Repaid Loans"
+              value={stats?.verifiedLoans || 0}
+              label="Verified Loans"
               className="bg-white"
             />
           </div>
 
-          <LoanTable loans={loans} title="Applied Loans" onStatusChange={handleStatusChange} />
+          <LoanTable loans={loans} title="Recent Loan Activity" onStatusChange={handleStatusChange} />
 
           <div className="grid grid-cols-1 gap-6 mt-6">
-            <ChartCard title="Loans Released Monthly" data={LOANS_RELEASED_DATA} type="area" color="#84cc16" />
+            <ChartCard 
+              title="Loans Released Monthly" 
+              data={chartData.loansReleasedMonthly} 
+              type="area" 
+              color="#84cc16" 
+            />
 
             <ChartCard
               title="Total Outstanding Open Loans - Monthly"
-              data={OUTSTANDING_LOANS_DATA}
+              data={chartData.outstandingLoansMonthly}
               type="bar"
               color="#3b82f6"
             />
 
             <ChartCard
               title="Number of Repayments Collected - Monthly"
-              data={REPAYMENTS_DATA}
+              data={chartData.repaymentsCollectedMonthly}
               type="bar"
               color="#b91c1c"
             />
@@ -218,4 +248,3 @@ export default function VerifierDashboard() {
     </ProtectedRoute>
   )
 }
-

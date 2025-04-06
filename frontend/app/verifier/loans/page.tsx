@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import ProtectedRoute from "@/components/protected-route"
 import MainLayout from "@/components/main-layout"
 import { Button } from "@/components/ui/button"
@@ -11,97 +11,100 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Eye, FileText } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
+import api from "@/utils/api"
 
 interface Loan {
-  id: string
-  borrowerId: string
-  borrowerName: string
+  _id: string
+  user: {
+    _id: string
+    name: string
+    email: string
+  }
   amount: number
-  term: number // in months
-  purpose: string
-  dateApplied: string
+  interestRate: number
+  tenure: number
+  reason: string
+  applicationDate: string
   status: "pending" | "verified" | "rejected"
-  documents: string[]
+  documents?: string[]
+  employmentStatus?: string
+  employerName?: string
+  employerAddress?: string
 }
 
-// Mock loans data
-const MOCK_LOANS: Loan[] = [
-  {
-    id: "1",
-    borrowerId: "1",
-    borrowerName: "John Smith",
-    amount: 50000,
-    term: 12,
-    purpose: "Business expansion",
-    dateApplied: "2023-05-15",
-    status: "pending",
-    documents: ["ID Card", "Business Plan", "Bank Statement"],
-  },
-  {
-    id: "2",
-    borrowerId: "2",
-    borrowerName: "Sarah Johnson",
-    amount: 75000,
-    term: 24,
-    purpose: "Education",
-    dateApplied: "2023-06-20",
-    status: "verified",
-    documents: ["ID Card", "Admission Letter", "Bank Statement", "Guarantor Form"],
-  },
-  {
-    id: "3",
-    borrowerId: "3",
-    borrowerName: "Michael Brown",
-    amount: 100000,
-    term: 36,
-    purpose: "Home renovation",
-    dateApplied: "2023-04-10",
-    status: "rejected",
-    documents: ["ID Card", "Property Documents"],
-  },
-  {
-    id: "4",
-    borrowerId: "4",
-    borrowerName: "Emily Davis",
-    amount: 25000,
-    term: 6,
-    purpose: "Medical expenses",
-    dateApplied: "2023-07-05",
-    status: "pending",
-    documents: ["ID Card", "Medical Reports", "Bank Statement"],
-  },
-  {
-    id: "5",
-    borrowerId: "5",
-    borrowerName: "David Wilson",
-    amount: 150000,
-    term: 48,
-    purpose: "Debt consolidation",
-    dateApplied: "2023-07-01",
-    status: "pending",
-    documents: ["ID Card", "Debt Statements", "Bank Statement", "Employment Letter"],
-  },
-]
-
 export default function VerifierLoans() {
-  const [loans, setLoans] = useState<Loan[]>(MOCK_LOANS)
+  const [loans, setLoans] = useState<Loan[]>([])
   const [searchTerm, setSearchTerm] = useState("")
+  const [isLoading, setIsLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
   const { toast } = useToast()
+
+  // Fetch loans on component mount
+  useEffect(() => {
+    const fetchLoans = async () => {
+      setIsLoading(true)
+      setError(null)
+      try {
+        console.log("Fetching verifier loans data...")
+        const response = await api.get("/api/verifier/loans/pending")
+        console.log("Verifier loans data received:", response.data)
+        setLoans(response.data.loans || [])
+      } catch (error: any) {
+        console.error("Error fetching loans:", error)
+        
+        let errorMessage = "Failed to load loans data"
+        if (error.response) {
+          errorMessage += `: ${error.response.status} - ${error.response.data?.message || "Unknown error"}`
+        } else if (error.request) {
+          errorMessage += ": No response received from server"
+        } else {
+          errorMessage += `: ${error.message}`
+        }
+        
+        setError(errorMessage)
+        
+        toast({
+          variant: "destructive",
+          title: "Failed to fetch data",
+          description: "There was an error loading the loans data."
+        })
+      } finally {
+        setIsLoading(false)
+      }
+    }
+
+    fetchLoans()
+  }, [toast])
 
   const filteredLoans = loans.filter(
     (loan) =>
-      loan.borrowerName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      loan.purpose.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      loan.status.toLowerCase().includes(searchTerm.toLowerCase()),
+      loan.user?.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      loan.reason?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      loan.status?.toLowerCase().includes(searchTerm.toLowerCase()),
   )
 
-  const handleUpdateStatus = (loanId: string, newStatus: Loan["status"]) => {
-    setLoans(loans.map((loan) => (loan.id === loanId ? { ...loan, status: newStatus } : loan)))
+  const handleUpdateStatus = async (loanId: string, newStatus: Loan["status"]) => {
+    try {
+      // Update loan status via API
+      await api.patch(`/api/verifier/loans/${loanId}/verify`, { 
+        status: newStatus 
+      })
 
-    toast({
-      title: "Status Updated",
-      description: `Loan status has been updated to ${newStatus.toUpperCase()}`,
-    })
+      // Update the state
+      setLoans(loans.map((loan) => (loan._id === loanId ? { ...loan, status: newStatus } : loan)))
+
+      toast({
+        title: "Status Updated",
+        description: `Loan status has been updated to ${newStatus}`,
+      })
+    } catch (error: any) {
+      console.error("Error updating loan status:", error)
+      toast({
+        variant: "destructive",
+        title: "Failed to update status",
+        description: error.response?.data?.message || "There was an error updating the loan status.",
+      })
+    }
   }
 
   const getStatusBadgeClass = (status: Loan["status"]) => {
@@ -135,7 +138,7 @@ export default function VerifierLoans() {
               <CardContent>
                 <div className="text-2xl font-bold">{pendingCount}</div>
                 <p className="text-xs text-muted-foreground">
-                  {((pendingCount / loans.length) * 100).toFixed(1)}% of total loans
+                  {loans.length > 0 ? ((pendingCount / loans.length) * 100).toFixed(1) : 0}% of total loans
                 </p>
               </CardContent>
             </Card>
@@ -146,7 +149,7 @@ export default function VerifierLoans() {
               <CardContent>
                 <div className="text-2xl font-bold">{verifiedCount}</div>
                 <p className="text-xs text-muted-foreground">
-                  {((verifiedCount / loans.length) * 100).toFixed(1)}% of total loans
+                  {loans.length > 0 ? ((verifiedCount / loans.length) * 100).toFixed(1) : 0}% of total loans
                 </p>
               </CardContent>
             </Card>
@@ -157,7 +160,7 @@ export default function VerifierLoans() {
               <CardContent>
                 <div className="text-2xl font-bold">{rejectedCount}</div>
                 <p className="text-xs text-muted-foreground">
-                  {((rejectedCount / loans.length) * 100).toFixed(1)}% of total loans
+                  {loans.length > 0 ? ((rejectedCount / loans.length) * 100).toFixed(1) : 0}% of total loans
                 </p>
               </CardContent>
             </Card>
@@ -185,47 +188,58 @@ export default function VerifierLoans() {
                 />
               </div>
             </div>
+            
+            {isLoading ? (
+              <div className="flex justify-center items-center py-8">
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900"></div>
+              </div>
+            ) : error ? (
+              <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded relative" role="alert">
+                <strong className="font-bold">Error: </strong>
+                <span className="block sm:inline">{error}</span>
+              </div>
+            ) : (
+              <Tabs defaultValue="all">
+                <TabsList className="mb-4">
+                  <TabsTrigger value="all">All Loans</TabsTrigger>
+                  <TabsTrigger value="pending">Pending</TabsTrigger>
+                  <TabsTrigger value="verified">Verified</TabsTrigger>
+                  <TabsTrigger value="rejected">Rejected</TabsTrigger>
+                </TabsList>
 
-            <Tabs defaultValue="all">
-              <TabsList className="mb-4">
-                <TabsTrigger value="all">All Loans</TabsTrigger>
-                <TabsTrigger value="pending">Pending</TabsTrigger>
-                <TabsTrigger value="verified">Verified</TabsTrigger>
-                <TabsTrigger value="rejected">Rejected</TabsTrigger>
-              </TabsList>
+                <TabsContent value="all">
+                  <LoanTable
+                    loans={filteredLoans}
+                    onUpdateStatus={handleUpdateStatus}
+                    getStatusBadgeClass={getStatusBadgeClass}
+                  />
+                </TabsContent>
 
-              <TabsContent value="all">
-                <LoanTable
-                  loans={filteredLoans}
-                  onUpdateStatus={handleUpdateStatus}
-                  getStatusBadgeClass={getStatusBadgeClass}
-                />
-              </TabsContent>
+                <TabsContent value="pending">
+                  <LoanTable
+                    loans={filteredLoans.filter((l) => l.status === "pending")}
+                    onUpdateStatus={handleUpdateStatus}
+                    getStatusBadgeClass={getStatusBadgeClass}
+                  />
+                </TabsContent>
 
-              <TabsContent value="pending">
-                <LoanTable
-                  loans={filteredLoans.filter((l) => l.status === "pending")}
-                  onUpdateStatus={handleUpdateStatus}
-                  getStatusBadgeClass={getStatusBadgeClass}
-                />
-              </TabsContent>
+                <TabsContent value="verified">
+                  <LoanTable
+                    loans={filteredLoans.filter((l) => l.status === "verified")}
+                    onUpdateStatus={handleUpdateStatus}
+                    getStatusBadgeClass={getStatusBadgeClass}
+                  />
+                </TabsContent>
 
-              <TabsContent value="verified">
-                <LoanTable
-                  loans={filteredLoans.filter((l) => l.status === "verified")}
-                  onUpdateStatus={handleUpdateStatus}
-                  getStatusBadgeClass={getStatusBadgeClass}
-                />
-              </TabsContent>
-
-              <TabsContent value="rejected">
-                <LoanTable
-                  loans={filteredLoans.filter((l) => l.status === "rejected")}
-                  onUpdateStatus={handleUpdateStatus}
-                  getStatusBadgeClass={getStatusBadgeClass}
-                />
-              </TabsContent>
-            </Tabs>
+                <TabsContent value="rejected">
+                  <LoanTable
+                    loans={filteredLoans.filter((l) => l.status === "rejected")}
+                    onUpdateStatus={handleUpdateStatus}
+                    getStatusBadgeClass={getStatusBadgeClass}
+                  />
+                </TabsContent>
+              </Tabs>
+            )}
           </div>
         </div>
       </MainLayout>
@@ -257,10 +271,10 @@ function LoanTable({ loans, onUpdateStatus, getStatusBadgeClass }: LoanTableProp
             <TableHead>Borrower</TableHead>
             <TableHead>Amount</TableHead>
             <TableHead>Term</TableHead>
+            <TableHead>Interest</TableHead>
             <TableHead>Purpose</TableHead>
             <TableHead>Date Applied</TableHead>
             <TableHead>Status</TableHead>
-            <TableHead>Documents</TableHead>
             <TableHead>Actions</TableHead>
           </TableRow>
         </TableHeader>
@@ -273,31 +287,25 @@ function LoanTable({ loans, onUpdateStatus, getStatusBadgeClass }: LoanTableProp
             </TableRow>
           ) : (
             currentLoans.map((loan) => (
-              <TableRow key={loan.id}>
-                <TableCell>{loan.id}</TableCell>
-                <TableCell className="font-medium">{loan.borrowerName}</TableCell>
+              <TableRow key={loan._id}>
+                <TableCell>{loan._id.substring(0, 8)}...</TableCell>
+                <TableCell className="font-medium">{loan.user.name}</TableCell>
                 <TableCell>{loan.amount.toLocaleString()}</TableCell>
-                <TableCell>{loan.term} months</TableCell>
-                <TableCell>{loan.purpose}</TableCell>
-                <TableCell>{loan.dateApplied}</TableCell>
+                <TableCell>{loan.tenure} months</TableCell>
+                <TableCell>{loan.interestRate}%</TableCell>
+                <TableCell>{loan.reason}</TableCell>
+                <TableCell>{new Date(loan.applicationDate).toLocaleDateString()}</TableCell>
                 <TableCell>
                   <Badge variant="outline" className={getStatusBadgeClass(loan.status)}>
                     {loan.status.toUpperCase()}
                   </Badge>
                 </TableCell>
                 <TableCell>
-                  <div className="flex flex-wrap gap-1">
-                    {loan.documents.map((doc, index) => (
-                      <Badge key={index} variant="outline" className="bg-gray-100">
-                        {doc}
-                      </Badge>
-                    ))}
-                  </div>
-                </TableCell>
-                <TableCell>
                   <div className="flex space-x-2">
-                    <Button variant="outline" size="sm">
-                      <Eye className="h-4 w-4" />
+                    <Button variant="outline" size="sm" asChild>
+                      <a href={`/verifier/loans/${loan._id}`}>
+                        <Eye className="h-4 w-4" />
+                      </a>
                     </Button>
                     <Button variant="outline" size="sm">
                       <FileText className="h-4 w-4" />
@@ -309,7 +317,7 @@ function LoanTable({ loans, onUpdateStatus, getStatusBadgeClass }: LoanTableProp
                           variant="outline"
                           size="sm"
                           className="bg-green-100 text-green-800 hover:bg-green-200"
-                          onClick={() => onUpdateStatus(loan.id, "verified")}
+                          onClick={() => onUpdateStatus(loan._id, "verified")}
                         >
                           Verify
                         </Button>
@@ -317,7 +325,7 @@ function LoanTable({ loans, onUpdateStatus, getStatusBadgeClass }: LoanTableProp
                           variant="outline"
                           size="sm"
                           className="bg-red-100 text-red-800 hover:bg-red-200"
-                          onClick={() => onUpdateStatus(loan.id, "rejected")}
+                          onClick={() => onUpdateStatus(loan._id, "rejected")}
                         >
                           Reject
                         </Button>
@@ -331,29 +339,30 @@ function LoanTable({ loans, onUpdateStatus, getStatusBadgeClass }: LoanTableProp
         </TableBody>
       </Table>
 
-      <div className="flex justify-between items-center mt-4">
-        <div>Items per page: {itemsPerPage}</div>
-        <div className="flex items-center">
-          <span>
-            {indexOfFirstItem + 1}-{Math.min(indexOfLastItem, loans.length)} of {loans.length}
-          </span>
-          <button
-            className="ml-2 p-1 rounded border disabled:opacity-50"
-            disabled={currentPage === 1}
-            onClick={() => setCurrentPage(currentPage - 1)}
-          >
-            <span className="material-icons">chevron_left</span>
-          </button>
-          <button
-            className="p-1 rounded border disabled:opacity-50"
-            disabled={currentPage === totalPages}
-            onClick={() => setCurrentPage(currentPage + 1)}
-          >
-            <span className="material-icons">chevron_right</span>
-          </button>
+      {loans.length > itemsPerPage && (
+        <div className="flex justify-between items-center mt-4">
+          <div>Items per page: {itemsPerPage}</div>
+          <div className="flex items-center">
+            <span>
+              {indexOfFirstItem + 1}-{Math.min(indexOfLastItem, loans.length)} of {loans.length}
+            </span>
+            <button
+              className="ml-2 p-1 rounded border disabled:opacity-50"
+              disabled={currentPage === 1}
+              onClick={() => setCurrentPage(currentPage - 1)}
+            >
+              <span className="material-icons">chevron_left</span>
+            </button>
+            <button
+              className="p-1 rounded border disabled:opacity-50"
+              disabled={currentPage === totalPages}
+              onClick={() => setCurrentPage(currentPage + 1)}
+            >
+              <span className="material-icons">chevron_right</span>
+            </button>
+          </div>
         </div>
-      </div>
+      )}
     </div>
   )
 }
-

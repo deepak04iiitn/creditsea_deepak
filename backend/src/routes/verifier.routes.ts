@@ -1,8 +1,11 @@
+// backend/src/routes/verifier.routes.ts
 import express from 'express';
 import {
   getPendingLoans,
   verifyLoan,
-  getVerifierDashboardStats
+  getVerifierDashboardStats,
+  getBorrowers,
+  updateBorrowerVerificationStatus
 } from '../controllers/verifier.controller';
 import { authenticate, authorize } from '../middleware/auth.middleware';
 import { UserRole } from '../models/user.model';
@@ -13,8 +16,15 @@ const router = express.Router();
 router.use(authenticate);
 router.use(authorize(UserRole.VERIFIER));
 
-router.get('/loans/pending', getPendingLoans);
-router.patch('/loans/:loanId/verify', verifyLoan);
+// Dashboard
 router.get('/dashboard/stats', getVerifierDashboardStats);
 
-export default router; 
+// Loan management
+router.get('/loans/pending', getPendingLoans);
+router.patch('/loans/:loanId/verify', verifyLoan);
+
+// Borrower management
+router.get('/borrowers', getBorrowers);
+router.patch('/borrowers/:userId/status', updateBorrowerVerificationStatus);
+
+export default router;

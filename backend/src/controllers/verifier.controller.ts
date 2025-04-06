@@ -1,9 +1,11 @@
+// backend/src/controllers/verifier.controller.ts
 import { Request, Response } from 'express';
 import Loan, { LoanStatus } from '../models/loan.model';
+import User, { UserRole } from '../models/user.model';
 import mongoose from 'mongoose';
-import User from '../models/user.model';
 import Payment, { PaymentStatus } from '../models/payment.model';
 
+// Get pending loans for verification
 export const getPendingLoans = async (req: Request, res: Response) => {
   try {
     const pendingLoans = await Loan.find({ status: LoanStatus.PENDING })
@@ -16,6 +18,7 @@ export const getPendingLoans = async (req: Request, res: Response) => {
   }
 };
 
+// Verify a loan (approve for next steps or reject)
 export const verifyLoan = async (req: Request, res: Response) => {
   try {
     const { loanId } = req.params;
@@ -51,6 +54,7 @@ export const verifyLoan = async (req: Request, res: Response) => {
   }
 };
 
+// Get stats for verifier dashboard
 export const getVerifierDashboardStats = async (req: Request, res: Response) => {
   try {
     // Get counts
@@ -138,7 +142,7 @@ export const getVerifierDashboardStats = async (req: Request, res: Response) => 
         rejectedLoans,
         cashDisbursed: cashDisbursed[0]?.total || 0,
         cashReceived: cashReceived[0]?.total || 0,
-        totalSavings: 450000, // Placeholder value as per UI
+        totalSavings: 450000, // Placeholder value
       },
       recentActivity,
       charts: {
@@ -150,4 +154,99 @@ export const getVerifierDashboardStats = async (req: Request, res: Response) => 
   } catch (error) {
     res.status(500).json({ message: 'Server error', error });
   }
-}; 
+};
+
+// Get borrowers for verification
+export const getBorrowers = async (req: Request, res: Response) => {
+  try {
+    // Get users with 'user' role
+    const users = await User.find({ role: UserRole.USER })
+      .select('-password')
+      .sort({ createdAt: -1 });
+    
+    // For each user, get document verification status
+    // Note: In a real system, you'd have a separate collection for documents
+    // This is a simplified example
+    const borrowers = users.map(user => {
+      // Mock document list and verification status
+      // In a real system, this would come from database
+      const documentTypes = ['ID Card', 'Proof of Address', 'Bank Statement'];
+      
+      // Randomly determine if user has verification status
+      // In a real system, would be pulled from database
+      const randomStatus = Math.random();
+      let status = 'pending';
+      if (user.get('verificationStatus')) {
+        status = user.get('verificationStatus');
+      } else if (randomStatus > 0.7) {
+        status = 'verified';
+      } else if (randomStatus < 0.2) {
+        status = 'rejected';
+      }
+      
+      // Random selection of submitted documents
+      // In a real system, would be pulled from database
+      const documents = [];
+      for (const doc of documentTypes) {
+        if (Math.random() > 0.3) {
+          documents.push(doc);
+        }
+      }
+      
+      return {
+        _id: user._id,
+        name: user.name,
+        email: user.email,
+        phone: user.phone || 'Not provided',
+        status,
+        dateApplied: user.createdAt,
+        documents
+      };
+    });
+    
+    res.status(200).json({ borrowers });
+  } catch (error) {
+    res.status(500).json({ message: 'Server error', error });
+  }
+};
+
+// Update borrower verification status
+export const updateBorrowerVerificationStatus = async (req: Request, res: Response) => {
+  try {
+    const { userId } = req.params;
+    const { status } = req.body;
+    
+    if (!['pending', 'verified', 'rejected'].includes(status)) {
+      return res.status(400).json({ message: 'Invalid status' });
+    }
+    
+    const user = await User.findById(userId);
+    
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+    
+    if (user.role !== UserRole.USER) {
+      return res.status(400).json({ 
+        message: 'Can only update verification status for regular users' 
+      });
+    }
+    
+    // In a real system, you'd update document verification status in a proper table
+    // This is a simplified example
+    user.set('verificationStatus', status);
+    await user.save();
+    
+    res.status(200).json({ 
+      message: `Borrower verification status updated to ${status} successfully`,
+      user: {
+        id: user._id,
+        name: user.name,
+        email: user.email,
+        status
+      }
+    });
+  } catch (error) {
+    res.status(500).json({ message: 'Server error', error });
+  }
+};
